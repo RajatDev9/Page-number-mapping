@@ -20,6 +20,38 @@
 
   </div>
 
+  <div style="border: 0.5px solid var(--border); border-radius: 12px; padding: 1rem 1.1rem; margin-bottom: 1rem;">
+    <p style="font-size: 13px; color: var(--text-secondary); margin: 0 0 10px;">
+      3. Chapter TOC <span style="color: var(--text-muted);">(optional — sets each chapter's true page 1)</span>
+    </p>
+
+    <div style="border: 0.5px dashed var(--border-strong); border-radius: 10px; padding: 1rem; text-align: center; margin-bottom: 12px;" id="dropZone3">
+      <i class="ti ti-bookmark" style="font-size: 20px; color: var(--text-muted);" aria-hidden="true"></i>
+      <p style="font-size: 12px; color: var(--text-secondary); margin: 8px 0 10px;">Drop <code style="font-family: var(--font-mono); font-size: 11px;">bookmark_config.js</code> — reads chapter names &amp; page numbers automatically</p>
+      <input type="file" id="fileInput3" accept=".js,.txt" style="display: none;" />
+      <button id="chooseBtn3" type="button">Choose file</button>
+      <span id="fileName3" style="display: block; font-size: 12px; color: var(--text-muted); margin-top: 8px;"></span>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 8px; margin: 10px 0;">
+      <div style="flex: 1; height: 1px; background: var(--border);"></div>
+      <span style="font-size: 11px; color: var(--text-muted);">OR PASTE MANUALLY</span>
+      <div style="flex: 1; height: 1px; background: var(--border);"></div>
+    </div>
+
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+      <span style="font-size: 12px; color: var(--text-muted);">One chapter per line — formats like "CH01, 9" or "1. Chapter Title  9–22" both work</span>
+      <button id="tocClearBtn" type="button" style="font-size: 12px; padding: 4px 10px;">Clear</button>
+    </div>
+    <textarea id="tocInput" rows="4" placeholder="CH01, 10
+Chapter 2 - 26
+RV01: 1" style="width: 100%; font-family: var(--font-mono); font-size: 12px; resize: vertical; box-sizing: border-box;"></textarea>
+
+    <p id="tocStatus" style="font-size: 12px; color: var(--text-muted); margin: 8px 0 0;">
+      No TOC provided — chapter page 1 will default to each chapter's first tagged asset.
+    </p>
+  </div>
+
   <div id="errorBox" style="display: none; font-size: 13px; color: var(--text-danger); background: var(--bg-danger); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 1rem;"></div>
 
   <div id="resultsWrap" style="display: none;">
@@ -37,6 +69,10 @@
         <p style="font-size: 13px; color: var(--text-secondary); margin: 0 0 4px;">Unmatched</p>
         <p style="font-size: 24px; font-weight: 500; margin: 0; color: var(--text-warning);" id="statUnmatched">0</p>
       </div>
+      <div style="background: var(--surface-1); border-radius: var(--radius); padding: 1rem;">
+        <p style="font-size: 13px; color: var(--text-secondary); margin: 0 0 4px;">TOC chapters used</p>
+        <p style="font-size: 24px; font-weight: 500; margin: 0;" id="statToc">0</p>
+      </div>
     </div>
 
     <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
@@ -49,9 +85,12 @@
         <thead>
           <tr style="background: var(--surface-1); text-align: left; position: sticky; top: 0;">
             <th style="padding: 8px 10px; font-weight: 500; color: var(--text-secondary);">Name</th>
+            <th style="padding: 8px 10px; font-weight: 500; color: var(--text-secondary);">Chapter</th>
             <th style="padding: 8px 10px; font-weight: 500; color: var(--text-secondary);">Matched key</th>
             <th style="padding: 8px 10px; font-weight: 500; color: var(--text-secondary);">isVisibleInPageButton</th>
             <th style="padding: 8px 10px; font-weight: 500; color: var(--text-secondary);">pageNo</th>
+            <th style="padding: 8px 10px; font-weight: 500; color: var(--text-secondary);">Match method</th>
+            <th style="padding: 8px 10px; font-weight: 500; color: var(--text-secondary);">Page source</th>
           </tr>
         </thead>
         <tbody id="resultsBody"></tbody>
@@ -72,6 +111,17 @@
   var dropZone2 = document.getElementById('dropZone2');
   var fileName2 = document.getElementById('fileName2');
 
+  var fileInput3 = document.getElementById('fileInput3');
+  var chooseBtn3 = document.getElementById('chooseBtn3');
+  var dropZone3 = document.getElementById('dropZone3');
+  var fileName3 = document.getElementById('fileName3');
+
+  var tocInput = document.getElementById('tocInput');
+  var tocClearBtn = document.getElementById('tocClearBtn');
+  var tocStatus = document.getElementById('tocStatus');
+
+  var bookmarkTocMap = {};
+
   var errorBox = document.getElementById('errorBox');
   var resultsWrap = document.getElementById('resultsWrap');
   var resultsBody = document.getElementById('resultsBody');
@@ -80,7 +130,6 @@
 
   var configText = null;
   var csvText = null;
-  var csvRowsGlobal = null;
   var displayRows = [];
   var outputCsvString = '';
 
@@ -113,6 +162,34 @@
     var reader = new FileReader();
     reader.onload = function(evt){ csvText = evt.target.result; tryProcess(); };
     reader.readAsText(file);
+  });
+
+  wireDropZone(dropZone3, fileInput3, chooseBtn3, function(file){
+    fileName3.textContent = file.name;
+    var reader = new FileReader();
+    reader.onload = function(evt){
+      try {
+        bookmarkTocMap = parseBookmarkConfig(evt.target.result);
+        var n = Object.keys(bookmarkTocMap).length;
+        if (!n){
+          fileName3.textContent = file.name + ' — no caption/page pairs found';
+        }
+      } catch (err) {
+        bookmarkTocMap = {};
+        fileName3.textContent = file.name + ' — could not parse (' + err.message + ')';
+      }
+      tryProcess();
+    };
+    reader.readAsText(file);
+  });
+
+  tocInput.addEventListener('input', function(){ tryProcess(); });
+  tocClearBtn.addEventListener('click', function(){
+    tocInput.value = '';
+    bookmarkTocMap = {};
+    fileName3.textContent = '';
+    fileInput3.value = '';
+    tryProcess();
   });
 
   function showError(msg){
@@ -150,7 +227,86 @@
     return '"' + v.replace(/"/g, '""') + '"';
   }
 
-  function extractConfigAssets(text){
+  function pad2(n){ return n.length === 1 ? '0' + n : n; }
+
+  // Parse one line of pasted TOC text. Handles both:
+  //   "CH01, 9"  /  "Chapter 2 - 25"  /  "RV01: 1"
+  //   "1. A Computer System.pdf    9–22"  (leading number + title + page range)
+  // Lines with no chapter/leading-number signal (e.g. "Worksheet 1.pdf  23-23") are skipped.
+  function parseTocLine(line){
+    line = line.trim();
+    if (!line) return null;
+
+    var chapterKey = null;
+    var rvMatch = line.match(/\b(?:rv|revision)\D{0,3}(\d+)/i);
+    if (rvMatch){
+      chapterKey = 'RV' + pad2(rvMatch[1]);
+    } else {
+      var chMatch = line.match(/\bch(?:apter)?\D{0,3}(\d+)/i);
+      if (chMatch){
+        chapterKey = 'CH' + pad2(chMatch[1]);
+      } else {
+        var leadMatch = line.match(/^(\d+)\s*[.,)\-:]/);
+        if (leadMatch){
+          chapterKey = 'CH' + pad2(leadMatch[1]);
+        } else {
+          var bareMatch = line.match(/^(\d+)\b/);
+          if (bareMatch) chapterKey = 'CH' + pad2(bareMatch[1]);
+        }
+      }
+    }
+    if (!chapterKey) return null;
+
+    // Prefer a page RANGE (e.g. "9–22") and take its start page.
+    var rangeMatch = line.match(/(\d+)\s*[\u2013\u2014-]\s*(\d+)/);
+    var pageNum = null;
+    if (rangeMatch){
+      pageNum = parseInt(rangeMatch[1], 10);
+    } else {
+      var nums = line.match(/\d+/g);
+      if (nums && nums.length) pageNum = parseInt(nums[nums.length - 1], 10);
+    }
+    if (pageNum === null || isNaN(pageNum)) return null;
+    return { chapterKey: chapterKey, page: pageNum };
+  }
+
+  function parseToc(text){
+    var map = {};
+    if (!text || !text.trim()) return map;
+    text.split(/\r?\n/).forEach(function(line){
+      var r = parseTocLine(line);
+      if (r) map[r.chapterKey] = r.page;
+    });
+    return map;
+  }
+
+  // Parse a bookmark_config.js file: var ols=[{caption:"1. Title",page:"9",...}, ...]
+  // Scans for caption/page pairs directly (tolerant of nested "children" arrays and unquoted-key JS literal syntax).
+  function parseBookmarkConfig(text){
+    var map = {};
+    var re = /caption\s*:\s*"((?:[^"\\]|\\.)*)"[^}]*?page\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+    var m;
+    while ((m = re.exec(text)) !== null){
+      var caption = m[1].replace(/\\"/g, '"');
+      var pageNum = parseInt(m[2], 10);
+      if (isNaN(pageNum)) continue;
+
+      var chapterKey = null;
+      var rv = caption.match(/\b(?:rv|revision)\D{0,3}(\d+)/i);
+      if (rv){
+        chapterKey = 'RV' + pad2(rv[1]);
+      } else {
+        var lead = caption.match(/^\s*(\d+)\s*[.,)\-:]/);
+        if (lead) chapterKey = 'CH' + pad2(lead[1]);
+      }
+      if (chapterKey && !(chapterKey in map)){
+        map[chapterKey] = pageNum;
+      }
+    }
+    return map;
+  }
+
+  function extractConfigAssets(text, tocMap){
     var m = text.match(/var\s+pageEditor\s*=\s*(\{[\s\S]*?\});\s*bookConfig\.isFlipPdf/);
     if (!m) throw new Error('No pageEditor object found in config.js');
     var data = JSON.parse(m[1]);
@@ -189,26 +345,48 @@
     }
     if (!extracted.length) throw new Error('No MP4, MP3, or HTML assets found in pageEditor');
 
-    var chapterOrder = [];
-    var lastPage = {};
-    for (var k = 0; k < extracted.length; k++){
-      var ch = extracted[k].chapter;
-      if (chapterOrder.indexOf(ch) === -1) chapterOrder.push(ch);
-      lastPage[ch] = Math.max(lastPage[ch] || 0, extracted[k].page);
-    }
-    var chapterStart = {};
-    var prevEnd = 0;
-    for (var c = 0; c < chapterOrder.length; c++){
-      var chc = chapterOrder[c];
-      chapterStart[chc] = prevEnd + 1;
-      prevEnd = lastPage[chc];
+    // Fallback start page per chapter = first tagged asset's page (used when TOC doesn't cover a chapter)
+    var fallbackFirstPage = {};
+    extracted.forEach(function(r){
+      if (fallbackFirstPage[r.chapter] === undefined || r.page < fallbackFirstPage[r.chapter]){
+        fallbackFirstPage[r.chapter] = r.page;
+      }
+    });
+
+    var tocChaptersUsed = 0;
+    var assetInfo = {};
+    extracted.forEach(function(r){
+      var startPage, source;
+      if (tocMap && tocMap[r.chapter] !== undefined){
+        startPage = tocMap[r.chapter];
+        source = 'TOC';
+      } else {
+        startPage = fallbackFirstPage[r.chapter];
+        source = 'first asset (no TOC entry)';
+      }
+      assetInfo[r.key] = {
+        page: r.page - startPage + 1,
+        chapter: r.chapter,
+        source: source
+      };
+    });
+    if (tocMap){
+      Object.keys(tocMap).forEach(function(ch){
+        if (fallbackFirstPage[ch] !== undefined) tocChaptersUsed++;
+      });
     }
 
-    var assetPage = {};
+    // Ordered list of MP4 asset keys per chapter, in the order they appear in config.js
+    // (used as a positional fallback when a CSV's MP4 filename has been replaced with a random ID)
+    var mp4ByChapter = {};
     extracted.forEach(function(r){
-      assetPage[r.key] = r.page - chapterStart[r.chapter] + 1;
+      if (r.ext === 'MP4'){
+        if (!mp4ByChapter[r.chapter]) mp4ByChapter[r.chapter] = [];
+        mp4ByChapter[r.chapter].push(r.key);
+      }
     });
-    return assetPage;
+
+    return { assetInfo: assetInfo, tocChaptersUsed: tocChaptersUsed, mp4ByChapter: mp4ByChapter };
   }
 
   function baseKeyFromUrl(url){
@@ -221,11 +399,41 @@
     return last.replace(/\.[A-Za-z0-9]+$/, '');
   }
 
+  // Detect a chapter code from a Course Book row's PDF filename, e.g.
+  // ".../1. Evolution of Computers.pdf" -> "CH01". Used to track which
+  // chapter block subsequent CSV rows (Animation/Interactivity/etc) belong to.
+  function chapterFromCourseBookUrl(url){
+    var fileTitle = url.replace(/\\/g, '/').split('/').pop().replace(/\.pdf$/i, '');
+    var rv = fileTitle.match(/\b(?:rv|revision)\D{0,3}(\d+)/i);
+    if (rv) return 'RV' + pad2(rv[1]);
+    var lead = fileTitle.match(/^\s*(\d+)\s*[.,)\-:]/);
+    if (lead) return 'CH' + pad2(lead[1]);
+    return null;
+  }
+
   function tryProcess(){
+    var pastedMap = parseToc(tocInput.value);
+    // bookmark_config.js is the base; anything manually pasted overrides it for that chapter.
+    var tocMap = {};
+    Object.keys(bookmarkTocMap).forEach(function(k){ tocMap[k] = bookmarkTocMap[k]; });
+    Object.keys(pastedMap).forEach(function(k){ tocMap[k] = pastedMap[k]; });
+
+    var tocCount = Object.keys(tocMap).length;
+    if (tocCount > 0){
+      var sourceLabel = Object.keys(bookmarkTocMap).length ? 'bookmark_config.js' : 'pasted text';
+      tocStatus.textContent = 'Using ' + tocCount + ' chapter start page(s) (' + sourceLabel +
+        (Object.keys(pastedMap).length && Object.keys(bookmarkTocMap).length ? ' + manual overrides' : '') + '): ' +
+        Object.keys(tocMap).sort().map(function(k){ return k + '=' + tocMap[k]; }).join(', ');
+    } else {
+      tocStatus.textContent = 'No TOC provided — chapter page 1 will default to each chapter\'s first tagged asset.';
+    }
+
     if (!configText || !csvText) return;
     errorBox.style.display = 'none';
     try {
-      var assetPage = extractConfigAssets(configText);
+      var result = extractConfigAssets(configText, tocMap);
+      var assetInfo = result.assetInfo;
+
       var rows = parseCsv(csvText);
       var header = rows[0];
       var idx = {};
@@ -235,31 +443,63 @@
       for (var r = 0; r < required.length; r++){
         if (!(required[r] in idx)) throw new Error('CSV missing expected column: ' + required[r]);
       }
+      var groupI = ('groupName' in idx) ? idx.groupName : -1;
 
       var matchedCount = 0, unmatchedCount = 0;
       displayRows = [];
+      var currentChapter = null;
+      var mp4Counter = {};
 
       for (var ri = 1; ri < rows.length; ri++){
         var row = rows[ri];
         if (!row || row.length < header.length - 2) continue;
         if (row[idx.rowType] !== 'chapter_assets') continue;
+
+        var name = row[idx.name];
         var url = row[idx.url];
+
+        // Track which chapter block we're in via "Course Book" rows (e.g. "1. Evolution of Computers.pdf")
+        if (name === 'Course Book' && url){
+          var chFromTitle = chapterFromCourseBookUrl(url);
+          if (chFromTitle) currentChapter = chFromTitle;
+        }
+
         if (!url) continue;
         var key = baseKeyFromUrl(url);
-        if (key in assetPage){
-          var page = assetPage[key];
+        var matchedInfo = null, matchedKey = null, matchSource = null;
+
+        if (key in assetInfo){
+          matchedInfo = assetInfo[key];
+          matchedKey = key;
+          matchSource = 'exact name';
+        } else if (/\.mp4$/i.test(url) && currentChapter && result.mp4ByChapter[currentChapter]){
+          // Positional fallback: this MP4's filename doesn't match anything (e.g. a random CDN id).
+          // Use the Nth un-consumed MP4 tagged for the current chapter in config.js, in order.
+          var n = mp4Counter[currentChapter] || 0;
+          var chapterMp4s = result.mp4ByChapter[currentChapter];
+          if (n < chapterMp4s.length){
+            var realKey = chapterMp4s[n];
+            matchedInfo = assetInfo[realKey];
+            matchedKey = realKey;
+            matchSource = 'positional (unnamed file)';
+            mp4Counter[currentChapter] = n + 1;
+          }
+        }
+
+        if (matchedInfo){
           row[idx.isVisibleInPageButton] = 'TRUE';
-          row[idx.pageNo] = String(page);
+          row[idx.pageNo] = String(matchedInfo.page);
           matchedCount++;
-          displayRows.push({ name: row[idx.name], key: key, btn: 'TRUE', page: page });
+          displayRows.push({ name: name, chapter: matchedInfo.chapter, key: matchedKey, page: matchedInfo.page, matchMethod: matchSource, pageSource: matchedInfo.source });
         } else {
           unmatchedCount++;
         }
       }
 
-      document.getElementById('statConfig').textContent = Object.keys(assetPage).length;
+      document.getElementById('statConfig').textContent = Object.keys(assetInfo).length;
       document.getElementById('statMatched').textContent = matchedCount;
       document.getElementById('statUnmatched').textContent = unmatchedCount;
+      document.getElementById('statToc').textContent = result.tocChaptersUsed;
 
       var lines = rows.map(function(row){
         return row.map(csvCell).join(',');
@@ -278,11 +518,16 @@
     items.forEach(function(r){
       var tr = document.createElement('tr');
       tr.style.borderTop = '0.5px solid var(--border)';
+      var methodBadgeClass = r.matchMethod === 'exact name' ? 'c-teal' : 'c-coral';
+      var pageSourceBadgeClass = r.pageSource === 'TOC' ? 'c-teal' : 'c-coral';
       tr.innerHTML =
         '<td style="padding: 7px 10px;">' + r.name + '</td>' +
+        '<td style="padding: 7px 10px;">' + r.chapter + '</td>' +
         '<td style="padding: 7px 10px; font-family: var(--font-mono); font-size: 12px;">' + r.key + '</td>' +
         '<td style="padding: 7px 10px;"><span class="c-teal" style="display: inline-block; padding: 2px 8px; border-radius: var(--radius); font-size: 12px; font-weight: 500;">TRUE</span></td>' +
-        '<td style="padding: 7px 10px;">' + r.page + '</td>';
+        '<td style="padding: 7px 10px;">' + r.page + '</td>' +
+        '<td style="padding: 7px 10px;"><span class="' + methodBadgeClass + '" style="display: inline-block; padding: 2px 8px; border-radius: var(--radius); font-size: 11px; font-weight: 500;">' + r.matchMethod + '</span></td>' +
+        '<td style="padding: 7px 10px;"><span class="' + pageSourceBadgeClass + '" style="display: inline-block; padding: 2px 8px; border-radius: var(--radius); font-size: 11px; font-weight: 500;">' + r.pageSource + '</span></td>';
       resultsBody.appendChild(tr);
     });
   }
@@ -291,7 +536,7 @@
     var q = filterInput.value.trim().toLowerCase();
     if (!q){ drawTable(displayRows); return; }
     var filtered = displayRows.filter(function(r){
-      return r.name.toLowerCase().indexOf(q) !== -1 || r.key.toLowerCase().indexOf(q) !== -1;
+      return r.name.toLowerCase().indexOf(q) !== -1 || r.key.toLowerCase().indexOf(q) !== -1 || r.chapter.toLowerCase().indexOf(q) !== -1;
     });
     drawTable(filtered);
   });
